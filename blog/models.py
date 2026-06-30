@@ -1,5 +1,6 @@
 from django.contrib.auth.models import User
 from django.db import models
+from django.db.models import Prefetch, Count
 from django.urls import reverse
 
 
@@ -8,6 +9,25 @@ class PostQuerySet(models.QuerySet):
     def year(self, year):
         posts_at_year = self.filter(published_at__year=year).order_by('published_at')
         return posts_at_year
+
+    def popular(self):
+        return self.annotate(likes_count=Count('likes', distinct=True)).order_by(
+            '-likes_count').prefetch_related(
+            Prefetch('tags', queryset=Tag.objects.annotate(posts_count=Count('posts'))))
+
+    def fetch_with_comments_count(self):
+        """ у нас не происходит переумнажение строк так как мы сначала
+        достаем отдельно посты с лаками и потом уже считаем коментарии к добавляем к постам """
+        most_popular_posts_ids = [post.id for post in self]
+        post_with_comment = Post.objects.filter(id__in=most_popular_posts_ids).annotate(
+            comments_count=Count('comments', distinct=True),
+            )
+        ids_and_comments = post_with_comment.values_list('id', 'comments_count')
+        count_for_id = dict(ids_and_comments)
+
+        for post in self:
+            post.comments_count = count_for_id[post.id]
+        return self
 
 
 class TagQuerySet(models.QuerySet):
